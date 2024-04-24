@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Aggie Veo Bike Rack Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/esri-leaflet"></script>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; background-color: maroon; color: white; }
+        #map { height: 80vh; margin: 20px; }
+        h1 { text-align: center; font-size: 32px; font-weight: bold; margin-top: 20px; }
+        p { text-align: center; font-size: 20px; margin-top: 5px; }
+        .data-sources { text-align: center; margin-top: 10px; }
+        .leaflet-container { background: #fff; }
+    </style>
+</head>
+<body>
+    <h1>Aggie Veo Bike Rack Finder</h1>
+    <p>Howdy, Ag! Please select a campus building or parking garage. You will be shown the nearest bike rack.</p>
+    <div class="data-sources">
+        Integrated ArcGIS Online Layers with Leaflet: 
+        <a href="https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Campus_Structures/FeatureServer/0" target="_blank">Campus Structures</a>, 
+        <a href="https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Campus_GarageParking/FeatureServer/0" target="_blank">Parking Garages</a>, 
+        <a href="https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Bike_Rack__Points/FeatureServer/0" target="_blank">Bike Racks</a> 
+        - for more advanced geospatial analysis.
+    </div>
+    <div id="map"></div>
+    <script>
+        var mapCenter = [30.615264, -96.340836];
+        var map = L.map('map').setView(mapCenter, 15);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: 'Map data &copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        var previousLine, previousMarker;
+
+        function clearPreviousFeatures() {
+            if (previousLine) map.removeLayer(previousLine);
+            if (previousMarker) map.removeLayer(previousMarker);
+        }
+
+        function handleFeatureClick(e, type) {
+            clearPreviousFeatures();
+            var feature = e.layer.feature;
+            var buildingDetails;
+
+            if (type === 'structure') {
+                buildingDetails = "Type: " + feature.properties.Type + "<br/>" +
+                               "Bldg: " + feature.properties.Bldg + "<br/>" +
+                               "BldgAbbr: " + feature.properties.BldgAbbr + "<br/>" +
+                               "BldgName: " + feature.properties.BldgName + "<br/>" +
+                               "YearBuilt: " + feature.properties.YearBuilt + "<br/>" +
+                               "NumFloors: " + feature.properties.NumFloors + "<br/>" +
+                               "Address: " + feature.properties.Address + "<br/>" +
+                               "City: " + feature.properties.City + "<br/>" +
+                               "Zip: " + feature.properties.Zip;
+            } else if (type === 'parking') {
+                buildingDetails = "LotName: " + feature.properties.LotName + "<br/>" +
+                               "LotType: " + feature.properties.LotType;
+            }
+
+            // Query for Nearest Bike Rack
+            bikeRacksLayer.query().nearby(e.latlng, 1500).run(function(error, featureCollection) {
+                if (featureCollection.features.length) {
+                    var nearest = featureCollection.features[0];
+                    var nearestPoint = L.latLng(nearest.geometry.coordinates[1], nearest.geometry.coordinates[0]);
+                    var distance = e.latlng.distanceTo(nearestPoint).toFixed(2);
+
+                    // Draw Line to Bike Rack from Selected Point
+                    previousLine = L.polyline([e.latlng, nearestPoint], { color: 'black', weight: 4 }).addTo(map);
+
+                    // Highlight Bike Rack
+                    previousMarker = L.circleMarker(nearestPoint, {
+                        radius: 8,
+                        fillColor: 'black',
+                        color: 'black',
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 1
+                    }).addTo(map);
+
+                    // Google Maps Link
+                    var googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${e.latlng.lat},${e.latlng.lng}&destination=${nearestPoint.lat},${nearestPoint.lng}&travelmode=walking`;
+                    var combinedPopupContent = `${buildingDetails}<br/><b>Distance to Bike Rack from Selected Point: ${distance} meters</b><br/><a href="${googleMapsUrl}" target="_blank">Navigate on Google Maps</a>`;
+                    
+                    var combinedPopup = L.popup()
+                        .setLatLng(nearestPoint)
+                        .setContent(combinedPopupContent)
+                        .openOn(map);
+                }
+            });
+        }
+
+        // Layers from ArcGIS Online
+        var structuresLayer = L.esri.featureLayer({
+            url: "https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Campus_Structures/FeatureServer/0",
+            style: { color: 'navy', weight: 2, fillOpacity: 0.7 }
+        }).addTo(map).on('click', function(e) { handleFeatureClick(e, 'structure'); });
+
+        var parkingLayer = L.esri.featureLayer({
+            url: "https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Campus_GarageParking/FeatureServer/0",
+            style: { color: 'navy', weight: 2, fillOpacity: 0.7 }
+        }).addTo(map).on('click', function(e) { handleFeatureClick(e, 'parking'); });
+
+        var bikeRacksLayer = L.esri.featureLayer({
+            url: "https://services1.arcgis.com/qr14biwnHA6Vis6l/arcgis/rest/services/Bike_Rack__Points/FeatureServer/0",
+            pointToLayer: function (geoJsonPoint, latlng) {
+                return L.circleMarker(latlng, {
+                    radius: 6,
+                    fillColor: 'maroon',
+                    color: 'black',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+            }
+        }).addTo(map);
+    </script>
+</body>
+</html>
